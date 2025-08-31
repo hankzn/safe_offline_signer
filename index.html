@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<title>Safe 离线签名器（EIP-712）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  :root{--fg:#111827;--muted:#6b7280;--br:#e5e7eb}
+  body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px;max-width:900px;color:var(--fg)}
+  h1{font-size:22px;margin:0 0 12px}
+  .card{border:1px solid var(--br);border-radius:12px;padding:16px;margin:16px 0}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  label{display:block}
+  input,textarea,button{font-size:14px}
+  input[type=text],input[type=password],textarea{width:100%;padding:10px;border:1px solid var(--br);border-radius:10px;font-family:monospace}
+  textarea{min-height:140px}
+  button{padding:10px 14px;border-radius:10px;border:1px solid #111;background:#111;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#111}
+  .muted{color:var(--muted)}
+  .mono{font-family:monospace}
+  video{width:100%;max-height:260px;background:#000;border-radius:10px}
+  canvas{display:none}
+</style>
+</head>
+<body>
+<h1>Safe 离线签名器（EIP-712）</h1>
+
+<div class="card">
+  <h2>导入 EIP-712 JSON（来自在线端）</h2>
+  <div class="row">
+    <button id="btn_scan" class="ghost">摄像头扫码导入</button>
+    <span class="muted">或粘贴到下方文本框</span>
+  </div>
+  <textarea id="typed_json" placeholder='{"domain":{"verifyingContract":"0x...","chainId":1},"types":{"SafeTx":[...]}, "message":{...}, "primaryType":"SafeTx"}'></textarea>
+  <div id="cam_box" class="card" style="display:none">
+    <div class="row"><button id="btn_stop" class="ghost">停止扫码</button><span id="scan_status" class="muted"></span></div>
+    <video id="video" playsinline muted></video><canvas id="canvas"></canvas>
+  </div>
+  <div class="row"><button id="btn_parse">解析与校验</button><span id="parse_status" class="muted"></span></div>
+  <pre id="summary" class="mono"></pre>
+</div>
+
+<div class="card">
+  <h2>离线签名</h2>
+  <label>私钥（仅本机内存）<input id="priv" type="password" placeholder="0x..."/></label>
+  <div class="row"><button id="btn_sign">签名</button><span id="sign_status" class="muted"></span></div>
+  <label>签名（hex）<input id="sig" type="text" readonly/></label>
+  <div class="row"><div><div class="muted">签名二维码</div><div id="qr_sig" style="margin-top:6px"></div></div></div>
+  <pre id="recovered" class="mono"></pre>
+</div>
+
+<script src="./libs/ethers.umd.min.js"></script>
+<script src="./libs/qrcode.min.js"></script>
+<script src="./libs/jsQR.min.js"></script>
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  let typed=null, domain=null, types=null, message=null, hash=null;
+
+  // 扫码
+  let stream=null, rafId=null;
+  $("btn_scan").onclick=async ()=>{
+    $("cam_box").style.display="";
+    $("scan_status").textContent="启动摄像头…";
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      $("video").srcObject=stream; await $("video").play();
+      $("scan_status").textContent="请对准 EIP-712 JSON 二维码";
+      tick();
+    }catch(e){ $("scan_status").textContent="摄像头失败："+e.message; }
+  };
+  $("btn_stop").onclick=stopScan;
+  function stopScan(){ if(rafId)cancelAnimationFrame(rafId); rafId=null; if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+    $("video").srcObject=null; $("cam_box").style.display="none"; }
+  function tick(){
+    const v=$("video"); if(!v.videoWidth){ rafId=requestAnimationFrame(tick); return; }
+    const c=$("canvas"),ctx=c.getContext("2d"); c.width=v.videoWidth; c.height=v.videoHeight;
+    ctx.drawImage(v,0,0,c.width,c.height);
+    const img=ctx.getImageData(0,0,c.width,c.height);
+    const code=jsQR(img.data,c.width,c.height,{inversionAttempts:"attemptBoth"});
+    if(code && code.data){ try{ JSON.parse(code.data); $("typed_json").value=code.data; $("scan_status").textContent="已填入 JSON"; stopScan(); }catch{} }
+    rafId=requestAnimationFrame(tick);
+  }
+
+  // 解析
+  $("btn_parse").onclick=()=>{
+    try{
+      typed=JSON.parse($("typed_json").value||"{}");
+      domain=typed.domain; types=typed.types; message=typed.message;
+      if(!domain||!types||!message) throw new Error("缺少 domain/types/message");
+      if(!typed.primaryType) typed.primaryType="SafeTx";
+      hash = ethers.TypedDataEncoder.hash(domain, types, message);
+      $("parse_status").textContent="解析成功";
+      $("summary").textContent =
+        "verifyingContract: "+domain.verifyingContract+"\n"+
+        "chainId: "+domain.chainId+"\n"+
+        "primaryType: "+typed.primaryType+"\n"+
+        "safeTxHash: "+hash+"\n\n"+
+        "message:\n"+JSON.stringify(message,null,2);
+    }catch(e){ $("parse_status").textContent="错误："+e.message; $("summary").textContent=""; }
+  };
+
+  // 签名
+  $("btn_sign").onclick=async ()=>{
+    try{
+      if(!typed||!hash) throw new Error("请先解析 EIP-712 JSON");
+      const priv=($("priv").value||"").trim();
+      if(!/^0x[0-9a-fA-F]{64}$/.test(priv)) throw new Error("私钥格式不正确");
+      const w=new ethers.Wallet(priv);
+      const sig=await w.signTypedData(domain, types, message);
+      $("sig").value=sig;
+      $("sign_status").textContent="已签名";
+      const div=$("qr_sig"); div.innerHTML=""; new QRCode(div,{text:sig,width:240,height:240,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
+      const recovered=ethers.verifyTypedData(domain, types, message, sig);
+      $("recovered").textContent = "Signer: "+w.address+"\nRecovered: "+recovered+"\nMatch: "+(ethers.getAddress(recovered)===ethers.getAddress(w.address));
+    }catch(e){ $("sign_status").textContent="错误："+e.message; $("sig").value=""; $("qr_sig").innerHTML=""; $("recovered").textContent=""; }
+  };
+})();
+</script>
+</body>
+</html>
