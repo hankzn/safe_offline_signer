@@ -2,34 +2,30 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8"/>
-<title>Safe 离线签名器（EIP-712 / 扫码私钥 · iPad/通用适配）</title>
+<title>Safe 提交者 · 离线 EOA 签名器（多帧 SAFEQR / EIP-1559 / iPad 适配）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <style>
   :root{
     --fg:#111827; --muted:#6b7280; --br:#e5e7eb; --accent:#111;
-    --scan-size: min(85vmin, 720px); /* 中心扫描框边长：适配 iPad/桌面/手机 */
+    --scan-size: min(85vmin, 720px);
   }
-  body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px;max-width:900px;color:var(--fg)}
+  body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px;max-width:1000px;color:var(--fg)}
   h1{font-size:22px;margin:0 0 12px}
   .card{border:1px solid var(--br);border-radius:12px;padding:16px;margin:16px 0}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   label{display:block}
   input,textarea,button{font-size:14px}
-  input[type=text],input[type=password],textarea{width:100%;padding:10px;border:1px solid var(--br);border-radius:10px;font-family:monospace}
-  textarea{min-height:140px}
+  input[type=text],input[type=number],input[type=password],textarea{width:100%;padding:10px;border:1px solid var(--br);border-radius:10px;font-family:monospace}
+  textarea{min-height:120px}
   button{padding:10px 14px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
   button.ghost{background:#fff;color:var(--accent)}
   .muted{color:var(--muted)}
   .mono{font-family:monospace}
-  .warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:10px;padding:10px;margin-top:8px}
 
-  /* 统一摄像头容器（两处共用） */
   .cam-wrap{position:relative;border:1px solid var(--br);border-radius:12px;overflow:hidden;background:#000;margin-top:10px}
   .cam-wrap .preview{position:relative;width:100%;height:80vh;max-height:92vh;min-height:320px}
   .cam-wrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   .cam-wrap canvas{display:none}
-
-  /* 扫描框遮罩（正方形） */
   .scan-overlay{pointer-events:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
   .scan-overlay::before{
     content:""; display:block; width:var(--scan-size); aspect-ratio:1/1;
@@ -37,57 +33,81 @@
     box-shadow:0 0 0 9999px rgba(0,0,0,.35);
   }
   .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);font-size:14px}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .ok{color:#16a34a;font-weight:700}
+  .bad{color:#dc2626;font-weight:700}
 </style>
 </head>
 <body>
-<h1>Safe 离线签名器（EIP-712）</h1>
+<h1>Safe 提交者 · 离线 EOA 签名器</h1>
 
-<!-- 导入 EIP-712 JSON -->
+<!-- 1) 接收 tx_human.json（单帧/多帧 SAFEQR） -->
 <div class="card">
-  <h2>导入 EIP-712 JSON（来自在线端）</h2>
+  <h2>接收 tx_human.json（支持多帧 SAFEQR）</h2>
   <div class="row">
-    <button id="btn_scan_json" class="ghost">摄像头扫码导入</button>
-    <span class="muted">或粘贴到下方文本框</span>
+    <button id="btn_scan_tx" class="ghost">摄像头扫码</button>
+    <button id="btn_reset_session" class="ghost">重置会话</button>
+    <span id="rx_status" class="muted"></span>
   </div>
-  <textarea id="typed_json" placeholder='{"domain":{"verifyingContract":"0x...","chainId":1},"types":{"SafeTx":[...]}, "message":{...}, "primaryType":"SafeTx"}'></textarea>
 
-  <!-- 统一大的预览/扫描区（JSON） -->
-  <div id="cam_json" class="cam-wrap" style="display:none">
+  <div id="cam_tx" class="cam-wrap" style="display:none">
     <div class="preview">
-      <video id="video_json" playsinline webkit-playsinline muted></video>
-      <canvas id="canvas_json"></canvas>
+      <video id="video_tx" playsinline webkit-playsinline muted></video>
+      <canvas id="canvas_tx"></canvas>
       <div class="scan-overlay"></div>
-      <div class="hint">请将二维码置于白色框内</div>
+      <div class="hint">请将二维码置于白色框内（连续扫描所有帧）</div>
     </div>
     <div class="row" style="padding:10px">
-      <button id="btn_stop_json" class="ghost">停止扫码</button>
-      <span id="status_json" class="muted"></span>
+      <button id="btn_stop_tx" class="ghost">停止扫码</button>
+      <span id="scan_tx_status" class="muted"></span>
     </div>
   </div>
 
   <div class="row" style="margin-top:8px">
-    <button id="btn_parse">解析与校验</button>
-    <span id="parse_status" class="muted"></span>
+    <label style="flex:1">或粘贴（支持紧凑键名/标准键名）<textarea id="txt_txjson" placeholder='{"kind":"ETH","to":"0x...","data_hex":"0x...","chainId":1,"nonce":123,"gas":21000,"maxFeePerGas_gwei":...,"maxPriorityFeePerGas_gwei":...}'></textarea></label>
   </div>
-  <pre id="summary" class="mono"></pre>
+
+  <div class="row">
+    <button id="btn_parse_tx">解析 JSON</button>
+    <span id="parse_tx_status" class="muted"></span>
+  </div>
+
+  <pre id="tx_human_view" class="mono"></pre>
 </div>
 
-<!-- 离线签名（含：扫码私钥） -->
+<!-- 2) 填写/确认 EIP-1559 字段（完全离线） -->
 <div class="card">
-  <h2>离线签名</h2>
-  <div class="warn">
-    ⚠️ 仅在<strong>完全离线</strong>且<strong>受控</strong>设备上使用“扫码私钥”。签名完成后建议清空私钥并结束会话/关机。
+  <h2>确认 EIP-1559 字段（离线）</h2>
+  <div class="grid2">
+    <label>chainId<input id="chainId" type="number" placeholder="1"/></label>
+    <label>nonce<input id="nonce" type="number" placeholder="从在线端查询"/></label>
+    <label>to<input id="to" type="text" placeholder="0x..."/></label>
+    <label>value (wei)<input id="valueWei" type="text" placeholder="0 或 数值（wei）"/></label>
   </div>
-  <div class="row" style="margin-top:6px">
-    <label style="flex:1">私钥（仅本机内存）
-      <input id="priv" type="password" placeholder="0x..." autocomplete="off" autocapitalize="off" spellcheck="false"/>
-    </label>
+  <div class="grid2">
+    <label>gasLimit<input id="gas" type="number" placeholder="估算/在线端提供"/></label>
+    <label>maxFeePerGas (gwei)<input id="maxFee" type="text" placeholder="在线端给的档位"/></label>
+    <label>maxPriorityFeePerGas (gwei)<input id="maxPrio" type="text" placeholder="在线端给的档位"/></label>
+    <label>data (hex)<input id="dataHex" type="text" placeholder="0x..."/></label>
+  </div>
+  <div class="row">
+    <button id="btn_lock" class="ghost">一键从 tx_human 填充</button>
+    <span id="lock_status" class="muted"></span>
+  </div>
+</div>
+
+<!-- 3) 私钥输入/扫码 · 签名 -->
+<div class="card">
+  <h2>私钥 & 签名</h2>
+  <div class="row">
+    <label style="flex:1">私钥<input id="priv" type="password" placeholder="0x..." autocomplete="off" autocapitalize="off" spellcheck="false"/></label>
     <button id="btn_scan_priv" class="ghost">扫码私钥</button>
     <button id="btn_clear_priv" class="ghost">清空私钥</button>
     <span id="priv_status" class="muted"></span>
   </div>
 
-  <!-- 统一大的预览/扫描区（私钥） -->
   <div id="cam_priv" class="cam-wrap" style="display:none">
     <div class="preview">
       <video id="video_priv" playsinline webkit-playsinline muted></video>
@@ -97,17 +117,20 @@
     </div>
     <div class="row" style="padding:10px">
       <button id="btn_stop_priv" class="ghost">停止扫码</button>
-      <span id="status_priv" class="muted"></span>
+      <span id="scan_priv_status" class="muted"></span>
     </div>
   </div>
 
   <div class="row" style="margin-top:8px">
-    <button id="btn_sign">签名</button>
+    <button id="btn_sign">签名交易（EIP-1559）</button>
     <span id="sign_status" class="muted"></span>
   </div>
-  <label>签名（hex）<input id="sig" type="text" readonly/></label>
-  <div class="row"><div><div class="muted">签名二维码</div><div id="qr_sig" style="margin-top:6px"></div></div></div>
-  <pre id="recovered" class="mono"></pre>
+
+  <div class="grid2">
+    <label>RawTx<input id="rawtx" type="text" readonly/></label>
+    <label>Tx Hash<input id="txhash" type="text" readonly/></label>
+  </div>
+  <div class="row"><div><div class="muted">RawTx 二维码</div><div id="qr_raw" style="margin-top:6px"></div></div></div>
 </div>
 
 <script src="./libs/ethers.umd.min.js"></script>
@@ -117,41 +140,34 @@
 (function(){
   const $=id=>document.getElementById(id);
 
-  // ========== 通用：打开摄像头（后摄优先）==========
+  // ========= 摄像头通用（iPad 适配：大预览、中心方裁剪） =========
   async function openCamera(videoEl){
-    const constraints = {
+    const constraints={
       audio:false,
-      video:{
-        facingMode:{ ideal:"environment" },
-        width:{ ideal:1920 }, height:{ ideal:1080 }, aspectRatio:{ ideal:16/9 }
-      }
+      video:{ facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}, aspectRatio:{ideal:16/9} }
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = stream;
-    await videoEl.play(); // iOS: 在用户点击按钮后允许
+    await videoEl.play();
     return stream;
   }
-  // 计算中心正方形裁剪，Canvas 固定 800×800
   function prepSquareFrame(videoEl, canvasEl){
     const vw=videoEl.videoWidth||1280, vh=videoEl.videoHeight||720;
     const s=Math.min(vw,vh), sx=(vw-s)/2, sy=(vh-s)/2;
     const size=800; canvasEl.width=size; canvasEl.height=size;
     return { sx,sy,s,dx:0,dy:0,w:size,h:size };
   }
-  // 启动一个扫码循环（通用）
-  function startScanner({boxId, videoId, canvasId, statusId, decoder, onDecoded}){
+  function startScanner({boxId,videoId,canvasId,statusId,onDecoded}){
     const box=$(boxId), video=$(videoId), canvas=$(canvasId), status=$(statusId);
     let stream=null, raf=null, running=false;
-
     async function begin(){
       box.style.display="";
       status.textContent="启动摄像头…";
       try{
         stream=await openCamera(video);
-        status.textContent="请将二维码置于白色框内";
+        status.textContent="请将二维码置于白框内";
         running=true; tick();
-        window.addEventListener("orientationchange", onRotate);
-        window.addEventListener("resize", onRotate);
+        window.addEventListener("resize", onResize); window.addEventListener("orientationchange", onResize);
       }catch(e){ status.textContent="摄像头失败："+e.message; }
     }
     function stop(){
@@ -159,45 +175,130 @@
       if(raf) cancelAnimationFrame(raf), raf=null;
       if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
       video.srcObject=null; box.style.display="none";
-      window.removeEventListener("orientationchange", onRotate);
-      window.removeEventListener("resize", onRotate);
+      window.removeEventListener("resize", onResize); window.removeEventListener("orientationchange", onResize);
     }
-    function onRotate(){ /* 触发重绘即可 */ }
+    function onResize(){}
     function tick(){
       if(!running){ return; }
       if(!video.videoWidth){ raf=requestAnimationFrame(tick); return; }
       const ctx=canvas.getContext("2d");
-      const {sx,sy,s,dx,dy,w,h}=prepSquareFrame(video, canvas);
+      const {sx,sy,s,dx,dy,w,h}=prepSquareFrame(video,canvas);
       ctx.drawImage(video, sx,sy,s,s, dx,dy,w,h);
       const img=ctx.getImageData(0,0,w,h);
-      const code=decoder(img,w,h);
-      if(code){
-        const ok = onDecoded(code);
-        if(ok){ stop(); return; } // onDecoded 返回 true 表示接收并停止
+      const code=jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"});
+      if(code && code.data){
+        const ok = onDecoded(code.data);
+        if(ok){ stop(); return; }
       }
       raf=requestAnimationFrame(tick);
     }
     return { begin, stop };
   }
 
-  // ========== JSON 扫码器 ==========
-  const jsonScanner = startScanner({
-    boxId:"cam_json", videoId:"video_json", canvasId:"canvas_json", statusId:"status_json",
-    decoder:(img,w,h)=> jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"}),
-    onDecoded:(code)=>{
-      try{
-        const txt = (code.data||"").trim();
-        JSON.parse(txt); // 能 parse JSON 即认为是 EIP-712 JSON
-        $("typed_json").value = txt;
-        $("status_json").textContent = "已填入 JSON";
-        return true;
-      }catch(_){ return false; }
-    }
-  });
-  $("btn_scan_json").onclick = ()=> jsonScanner.begin();
-  $("btn_stop_json").onclick = ()=> jsonScanner.stop();
+  // ========= 1) 接收 tx_human.json（支持多帧 SAFEQR） =========
+  let session = null; // { id, n, sum, parts:[], received:Set, text?, fullHash? }
+  function resetSession(){ session=null; $("rx_status").textContent="已重置"; $("tx_human_view").textContent=""; $("txt_txjson").value=""; }
+  $("btn_reset_session").onclick = resetSession;
 
-  // ========== 私钥 扫码器 ==========
+  function tryFeedFrame(text){
+    // 1) 优先尝试 SAFEQR 容器
+    try{
+      const o=JSON.parse(text);
+      if(o && o.t==="SAFEQR" && o.v===1 && typeof o.id==="string" && typeof o.i==="number" && typeof o.n==="number" && typeof o.data==="string"){
+        if(!session || session.id!==o.id){
+          session = { id:o.id, n:o.n, sum:o.sum||"", parts:new Array(o.n), received:new Set() };
+        }
+        if(o.n!==session.n) return false; // 异常
+        session.parts[o.i]=o.data; session.received.add(o.i);
+        const got=[...session.received].sort((a,b)=>a-b).join(",");
+        $("rx_status").textContent = `会话 ${session.id}：已收帧 ${session.received.size}/${session.n}（索引：${got}）`;
+        if(session.received.size===session.n){
+          const full = session.parts.join("");
+          session.text = full;
+          return true; // 已收齐
+        }
+        return false; // 继续扫
+      }
+    }catch(_){/* 不是 SAFEQR，继续尝试单帧 JSON */}
+    // 2) 尝试直接是完整 JSON 文本
+    try{
+      JSON.parse(text);
+      session = { id:"single", n:1, sum:"", parts:[text], received:new Set([0]), text };
+      $("rx_status").textContent = `单帧 JSON 已接收（长度 ${text.length}）`;
+      return true;
+    }catch(_){}
+    return false;
+  }
+
+  const txScanner = startScanner({
+    boxId:"cam_tx", videoId:"video_tx", canvasId:"canvas_tx", statusId:"scan_tx_status",
+    onDecoded:(payload)=> tryFeedFrame((payload||"").trim())
+  });
+  $("btn_scan_tx").onclick = ()=> txScanner.begin();
+  $("btn_stop_tx").onclick = ()=> txScanner.stop();
+
+  // 紧凑键名 <-> 标准键名 的映射
+  const K2S = {k:"kind",f:"from",t:"to",vw:"value_wei",ae:"amount_eth",d:"data_hex",c:"chainId",n:"nonce",g:"gas",mf:"maxFeePerGas_gwei",mp:"maxPriorityFeePerGas_gwei"};
+  function expandCompact(obj){
+    const out={}; for(const k in obj){ const nk=K2S[k]||k; out[nk]=obj[k]; } return out;
+  }
+  function parseTxHuman(text){
+    const oRaw=JSON.parse(text);
+    const o = expandCompact(oRaw);
+    // 允许有 amount_eth 或 value_wei；data_hex 可缺省为 "0x"
+    if(!o.to) throw new Error("缺少 to");
+    if(!o.chainId) throw new Error("缺少 chainId");
+    if(o.value_wei==null && o.amount_eth==null) o.value_wei = "0";
+    if(!o.data_hex) o.data_hex="0x";
+    return o;
+  }
+  async function sha256Hex(str){
+    const bytes=new TextEncoder().encode(str);
+    const hash=await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  }
+
+  $("btn_parse_tx").onclick = async ()=>{
+    try{
+      let txt = $("txt_txjson").value.trim();
+      if(!txt){
+        if(!session || !session.text) throw new Error("请先扫码或粘贴 tx_human.json");
+        txt = session.text;
+      }
+      // 如果是 SAFEQR 收到的，并提供 sum，做一次校验（取 SHA256 前 8字节）
+      if(session && session.sum){
+        const fullHash = await sha256Hex(txt);
+        const short = fullHash.slice(0,16);
+        if(short.toLowerCase() !== session.sum.toLowerCase()){
+          throw new Error(`整体哈希不匹配：expected ${session.sum} got ${short}`);
+        }
+      }
+      const obj = parseTxHuman(txt);
+      $("tx_human_view").textContent = JSON.stringify(obj, null, 2);
+      $("parse_tx_status").textContent = "解析成功";
+      // 预填字段
+      $("chainId").value = obj.chainId ?? "";
+      $("to").value = obj.to ?? "";
+      $("dataHex").value = obj.data_hex ?? "0x";
+      $("nonce").value = obj.nonce ?? "";
+      $("gas").value = obj.gas ?? "";
+      // 处理金额
+      if(obj.value_wei!=null){ $("valueWei").value = String(obj.value_wei); }
+      else if(obj.amount_eth!=null){
+        try{ $("valueWei").value = ethers.parseUnits(String(obj.amount_eth), "ether").toString(); }catch(_){}
+      }
+      // 处理 gas 价格
+      if(obj.maxFeePerGas_gwei!=null) $("maxFee").value = String(obj.maxFeePerGas_gwei);
+      if(obj.maxPriorityFeePerGas_gwei!=null) $("maxPrio").value = String(obj.maxPriorityFeePerGas_gwei);
+    }catch(e){
+      $("parse_tx_status").textContent = "错误："+e.message;
+      $("tx_human_view").textContent="";
+    }
+  };
+
+  $("btn_lock").onclick = ()=> $("btn_parse_tx").click();
+
+  // ========= 2) 私钥扫码/清空 =========
   function extractPriv(text){
     const s=text.trim();
     if(/^0x[0-9a-fA-F]{64}$/.test(s)) return s;
@@ -211,58 +312,59 @@
     return null;
   }
   const privScanner = startScanner({
-    boxId:"cam_priv", videoId:"video_priv", canvasId:"canvas_priv", statusId:"status_priv",
-    decoder:(img,w,h)=> jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"}),
-    onDecoded:(code)=>{
-      const maybe = extractPriv(code.data||"");
-      if(maybe){
-        $("priv").value = maybe;
-        $("priv_status").textContent = "已通过二维码填入私钥";
-        return true;
-      }
+    boxId:"cam_priv", videoId:"video_priv", canvasId:"canvas_priv", statusId:"scan_priv_status",
+    onDecoded:(payload)=>{
+      const maybe = extractPriv((payload||"").trim());
+      if(maybe){ $("priv").value=maybe; $("priv_status").textContent="已通过二维码填入私钥"; return true; }
       return false;
     }
   });
   $("btn_scan_priv").onclick = ()=> privScanner.begin();
   $("btn_stop_priv").onclick = ()=> privScanner.stop();
-  $("btn_clear_priv").onclick = ()=>{ $("priv").value=""; $("priv_status").textContent="已清空"; };
+  $("btn_clear_priv").onclick = ()=> { $("priv").value=""; $("priv_status").textContent="已清空"; };
 
-  // ========== 解析 EIP-712 / 签名 ==========
-  let typed=null, domain=null, types=null, message=null, hash=null;
-  $("btn_parse").onclick=()=>{
+  // ========= 3) 签名（EIP-1559） =========
+  function toWeiGwei(x){ return ethers.parseUnits(String(x), "gwei"); }
+  $("btn_sign").onclick = async ()=>{
     try{
-      typed=JSON.parse($("typed_json").value||"{}");
-      domain=typed.domain; types=typed.types; message=typed.message;
-      if(!domain||!types||!message) throw new Error("缺少 domain/types/message");
-      if(!typed.primaryType) typed.primaryType="SafeTx";
-      hash = ethers.TypedDataEncoder.hash(domain, types, message);
-      $("parse_status").textContent="解析成功";
-      $("summary").textContent =
-        "verifyingContract: "+domain.verifyingContract+"\n"+
-        "chainId: "+domain.chainId+"\n"+
-        "primaryType: "+typed.primaryType+"\n"+
-        "safeTxHash: "+hash+"\n\n"+
-        "message:\n"+JSON.stringify(message,null,2);
-    }catch(e){ $("parse_status").textContent="错误："+e.message; $("summary").textContent=""; }
-  };
-
-  $("btn_sign").onclick=async ()=>{
-    try{
-      if(!typed||!hash) throw new Error("请先解析 EIP-712 JSON");
       const priv=($("priv").value||"").trim();
       if(!/^0x[0-9a-fA-F]{64}$/.test(priv)) throw new Error("私钥格式不正确");
       const w=new ethers.Wallet(priv);
-      const sig=await w.signTypedData(domain, types, message);
-      $("sig").value=sig;
-      $("sign_status").textContent="已签名";
-      const div=document.getElementById("qr_sig"); div.innerHTML="";
-      new QRCode(div,{text:sig,width:260,height:260,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
-      const recovered=ethers.verifyTypedData(domain, types, message, sig);
-      document.getElementById("recovered").textContent =
-        "Signer: "+w.address+"\nRecovered: "+recovered+"\nMatch: "+(ethers.getAddress(recovered)===ethers.getAddress(w.address));
+
+      const chainId=Number($("chainId").value||"");
+      const nonce=Number($("nonce").value||"");
+      const to=($("to").value||"").trim();
+      const valueWei=BigInt(($("valueWei").value||"0").trim());
+      const gasLimit=BigInt(($("gas").value||"").trim());
+      const maxFeePerGas=toWeiGwei(($("maxFee").value||"").trim());
+      const maxPriorityFeePerGas=toWeiGwei(($("maxPrio").value||"").trim());
+      const data=($("dataHex").value||"0x").trim();
+
+      if(!chainId) throw new Error("缺少 chainId");
+      if(!Number.isFinite(nonce)) throw new Error("缺少或不合法的 nonce");
+      if(!/^0x[0-9a-fA-F]{40}$/.test(to)) throw new Error("to 地址不合法");
+      if(!data.startsWith("0x")) throw new Error("data 必须以 0x 开头");
+      if(gasLimit<=0n) throw new Error("gasLimit 不能为空");
+      if(maxFeePerGas<=0n || maxPriorityFeePerGas<0n) throw new Error("gas 价格不合法");
+      if(maxFeePerGas<maxPriorityFeePerGas) throw new Error("maxFeePerGas 必须 ≥ maxPriorityFeePerGas");
+
+      const tx = {
+        type: 2, chainId, nonce,
+        to, value: valueWei, data,
+        gasLimit,
+        maxFeePerGas, maxPriorityFeePerGas
+      };
+      const raw = await w.signTransaction(tx);
+      const txhash = ethers.keccak256(raw);
+      $("rawtx").value = raw;
+      $("txhash").value = txhash;
+      $("sign_status").textContent = "签名完成";
+
+      const div=$("qr_raw"); div.innerHTML="";
+      new QRCode(div,{text:raw,width:280,height:280,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
     }catch(e){
       $("sign_status").textContent="错误："+e.message;
-      $("sig").value=""; document.getElementById("qr_sig").innerHTML=""; document.getElementById("recovered").textContent="";
+      $("rawtx").value=""; $("txhash").value=""; $("qr_raw").innerHTML="";
     }
   };
 })();
