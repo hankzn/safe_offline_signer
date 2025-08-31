@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8"/>
-<title>Safe 提交者 · 离线 EOA 签名器（多帧 SAFEQR / EIP-1559 / iPad 适配）</title>
+<title>Safe 提交者 · 离线 EOA 签名器（SAFEQR / EIP-1559 / iPad 适配）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <style>
   :root{
@@ -43,9 +43,9 @@
 <body>
 <h1>Safe 提交者 · 离线 EOA 签名器</h1>
 
-<!-- 1) 接收 tx_human.json（单帧/多帧 SAFEQR） -->
+<!-- 1) 接收 tx_human.json 或 原生 EIP-1559 JSON -->
 <div class="card">
-  <h2>接收 tx_human.json（支持多帧 SAFEQR）</h2>
+  <h2>接收 tx_human.json / 原生 EIP-1559 JSON（支持多帧 SAFEQR）</h2>
   <div class="row">
     <button id="btn_scan_tx" class="ghost">摄像头扫码</button>
     <button id="btn_reset_session" class="ghost">重置会话</button>
@@ -66,7 +66,8 @@
   </div>
 
   <div class="row" style="margin-top:8px">
-    <label style="flex:1">或粘贴（支持紧凑键名/标准键名）<textarea id="txt_txjson" placeholder='{"kind":"ETH","to":"0x...","data_hex":"0x...","chainId":1,"nonce":123,"gas":21000,"maxFeePerGas_gwei":...,"maxPriorityFeePerGas_gwei":...}'></textarea></label>
+    <label style="flex:1">或粘贴（自动识别 tx_human / 原生 EIP-1559）<textarea id="txt_txjson" placeholder='示例1：{"kind":"ETH","to":"0x...","data_hex":"0x...","chainId":1,...}
+示例2（EIP-1559 原生）：{"type":2,"chainId":"0x1","nonce":"0x12","to":"0x...","value":"0x0","gas":"0x5208","maxFeePerGas":"0x...","maxPriorityFeePerGas":"0x...","data":"0x..."}'></textarea></label>
   </div>
 
   <div class="row">
@@ -88,12 +89,12 @@
   </div>
   <div class="grid2">
     <label>gasLimit<input id="gas" type="number" placeholder="估算/在线端提供"/></label>
-    <label>maxFeePerGas (gwei)<input id="maxFee" type="text" placeholder="在线端给的档位"/></label>
-    <label>maxPriorityFeePerGas (gwei)<input id="maxPrio" type="text" placeholder="在线端给的档位"/></label>
+    <label>maxFeePerGas (gwei)<input id="maxFee" type="text" placeholder="在线端给的档位或原生JSON换算"/></label>
+    <label>maxPriorityFeePerGas (gwei)<input id="maxPrio" type="text" placeholder="在线端给的档位或原生JSON换算"/></label>
     <label>data (hex)<input id="dataHex" type="text" placeholder="0x..."/></label>
   </div>
   <div class="row">
-    <button id="btn_lock" class="ghost">一键从 tx_human 填充</button>
+    <button id="btn_lock" class="ghost">一键从 JSON 填充</button>
     <span id="lock_status" class="muted"></span>
   </div>
 </div>
@@ -195,32 +196,31 @@
     return { begin, stop };
   }
 
-  // ========= 1) 接收 tx_human.json（支持多帧 SAFEQR） =========
-  let session = null; // { id, n, sum, parts:[], received:Set, text?, fullHash? }
+  // ========= 1) 接收 tx_human.json（支持多帧 SAFEQR）或 原生 EIP-1559 =========
+  let session = null; // { id, n, sum, parts:[], received:Set, text? }
   function resetSession(){ session=null; $("rx_status").textContent="已重置"; $("tx_human_view").textContent=""; $("txt_txjson").value=""; }
   $("btn_reset_session").onclick = resetSession;
 
   function tryFeedFrame(text){
-    // 1) 优先尝试 SAFEQR 容器
+    // 1) SAFEQR 容器
     try{
       const o=JSON.parse(text);
       if(o && o.t==="SAFEQR" && o.v===1 && typeof o.id==="string" && typeof o.i==="number" && typeof o.n==="number" && typeof o.data==="string"){
         if(!session || session.id!==o.id){
           session = { id:o.id, n:o.n, sum:o.sum||"", parts:new Array(o.n), received:new Set() };
         }
-        if(o.n!==session.n) return false; // 异常
+        if(o.n!==session.n) return false;
         session.parts[o.i]=o.data; session.received.add(o.i);
         const got=[...session.received].sort((a,b)=>a-b).join(",");
         $("rx_status").textContent = `会话 ${session.id}：已收帧 ${session.received.size}/${session.n}（索引：${got}）`;
         if(session.received.size===session.n){
-          const full = session.parts.join("");
-          session.text = full;
-          return true; // 已收齐
+          session.text = session.parts.join("");
+          return true;
         }
-        return false; // 继续扫
+        return false;
       }
-    }catch(_){/* 不是 SAFEQR，继续尝试单帧 JSON */}
-    // 2) 尝试直接是完整 JSON 文本
+    }catch(_){}
+    // 2) 单帧 JSON
     try{
       JSON.parse(text);
       session = { id:"single", n:1, sum:"", parts:[text], received:new Set([0]), text };
@@ -237,35 +237,105 @@
   $("btn_scan_tx").onclick = ()=> txScanner.begin();
   $("btn_stop_tx").onclick = ()=> txScanner.stop();
 
-  // 紧凑键名 <-> 标准键名 的映射
+  // 紧凑键名 <-> 标准键名 的映射（tx_human）
   const K2S = {k:"kind",f:"from",t:"to",vw:"value_wei",ae:"amount_eth",d:"data_hex",c:"chainId",n:"nonce",g:"gas",mf:"maxFeePerGas_gwei",mp:"maxPriorityFeePerGas_gwei"};
-  function expandCompact(obj){
-    const out={}; for(const k in obj){ const nk=K2S[k]||k; out[nk]=obj[k]; } return out;
+  function expandCompact(obj){ const out={}; for(const k in obj){ out[K2S[k]||k]=obj[k]; } return out; }
+
+  // 工具：把任意（十进制字符串/数字/十六进制字符串）解析为 BigInt
+  function toBigIntLoose(v){
+    if(typeof v==="bigint") return v;
+    if(typeof v==="number") return BigInt(Math.trunc(v));
+    if(typeof v==="string"){
+      const s=v.trim();
+      if(/^0x[0-9a-fA-F]+$/.test(s)) return BigInt(s);
+      if(/^\d+(\.\d+)?$/.test(s)){
+        if(s.includes(".")) throw new Error("不支持小数（请使用整数的最小单位或合适字段）");
+        return BigInt(s);
+      }
+    }
+    throw new Error("无法解析数值："+v);
   }
-  function parseTxHuman(text){
-    const oRaw=JSON.parse(text);
-    const o = expandCompact(oRaw);
-    // 允许有 amount_eth 或 value_wei；data_hex 可缺省为 "0x"
-    if(!o.to) throw new Error("缺少 to");
-    if(!o.chainId) throw new Error("缺少 chainId");
-    if(o.value_wei==null && o.amount_eth==null) o.value_wei = "0";
-    if(!o.data_hex) o.data_hex="0x";
-    return o;
+  function toNumberLoose(v){
+    if(typeof v==="number") return v;
+    if(typeof v==="string" && /^\d+(\.\d+)?$/.test(v)) return Number(v);
+    if(typeof v==="string" && /^0x[0-9a-fA-F]+$/.test(v)) return parseInt(v,16);
+    if(typeof v==="bigint") return Number(v);
+    throw new Error("无法解析为数字："+v);
   }
+  function gweiFromWeiLike(v){ // 输入可能是 wei(hex/dec/num/bigint) 或 gwei(字符串带小数)
+    if(typeof v==="string" && !/^0x/i.test(v) && v.includes(".")){
+      // 视为 gwei（例如 "12.5"）
+      return v;
+    }
+    const wei = toBigIntLoose(v);
+    const gweiStr = ethers.formatUnits(wei, "gwei");
+    // 保留合适小数位（最多 6 位）
+    const [i,f=""] = gweiStr.split(".");
+    return f ? (i+"."+f.slice(0,6).replace(/0+$/,"")).replace(/\.$/,"") : i;
+  }
+
+  function isLikelyRaw1559(o){
+    if(o==null || typeof o!=="object") return false;
+    if(o.type===2 || o.type==="0x2") return true;
+    if(o.maxFeePerGas!=null || o.maxPriorityFeePerGas!=null) return true;
+    if(o.gas!=null || o.gasLimit!=null) return true;
+    return false;
+  }
+
+  function normalizeFromTxHumanText(text){
+    const raw=JSON.parse(text);
+    const obj=expandCompact(raw);
+    // 允许 value_wei 或 amount_eth，data_hex 可缺省
+    const chainId = toNumberLoose(obj.chainId);
+    const to = String(obj.to||"").trim();
+    const data = (obj.data_hex||"0x").trim();
+    const nonce = (obj.nonce!=null) ? toNumberLoose(obj.nonce) : "";
+    const gas = (obj.gas!=null) ? toNumberLoose(obj.gas) : "";
+    // 金额
+    let valueWei="0";
+    if(obj.value_wei!=null) valueWei = String(toBigIntLoose(obj.value_wei));
+    else if(obj.amount_eth!=null) valueWei = ethers.parseUnits(String(obj.amount_eth), "ether").toString();
+    // 价格（gwei）
+    const maxFeeGwei = (obj.maxFeePerGas_gwei!=null) ? String(obj.maxFeePerGas_gwei) : "";
+    const maxPrioGwei = (obj.maxPriorityFeePerGas_gwei!=null) ? String(obj.maxPriorityFeePerGas_gwei) : "";
+    return { schema:"tx_human", chainId, to, data, nonce, gas, valueWei, maxFeeGwei, maxPrioGwei, pretty:obj };
+  }
+
+  function normalizeFromRaw1559(o){
+    // 解析常见字段：hex/dec 都可
+    const chainId = toNumberLoose(o.chainId);
+    const nonce   = toNumberLoose(o.nonce);
+    const to      = String(o.to||"").trim();
+    const data    = (o.data||"0x").trim();
+    const gas     = (o.gas!=null)? toNumberLoose(o.gas) : (o.gasLimit!=null? toNumberLoose(o.gasLimit) : "");
+    // 金额（wei）
+    const valueWei = String( toBigIntLoose(o.value||0) );
+    // 价格：原生一般是 wei（hex/dec），统一换算到 gwei 文本
+    const maxFeeGwei = (o.maxFeePerGas!=null) ? gweiFromWeiLike(o.maxFeePerGas) : "";
+    const maxPrioGwei= (o.maxPriorityFeePerGas!=null) ? gweiFromWeiLike(o.maxPriorityFeePerGas) : "";
+    return { schema:"raw_1559", chainId, to, data, nonce, gas, valueWei, maxFeeGwei, maxPrioGwei, pretty:o };
+  }
+
   async function sha256Hex(str){
     const bytes=new TextEncoder().encode(str);
     const hash=await crypto.subtle.digest("SHA-256", bytes);
     return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("");
   }
 
+  function detectAndNormalize(text){
+    const parsed=JSON.parse(text);
+    if(isLikelyRaw1559(parsed)) return normalizeFromRaw1559(parsed);
+    return normalizeFromTxHumanText(text);
+  }
+
   $("btn_parse_tx").onclick = async ()=>{
     try{
       let txt = $("txt_txjson").value.trim();
       if(!txt){
-        if(!session || !session.text) throw new Error("请先扫码或粘贴 tx_human.json");
+        if(!session || !session.text) throw new Error("请先扫码或粘贴 JSON");
         txt = session.text;
       }
-      // 如果是 SAFEQR 收到的，并提供 sum，做一次校验（取 SHA256 前 8字节）
+      // SAFEQR 的完整性校验（如有）
       if(session && session.sum){
         const fullHash = await sha256Hex(txt);
         const short = fullHash.slice(0,16);
@@ -273,23 +343,23 @@
           throw new Error(`整体哈希不匹配：expected ${session.sum} got ${short}`);
         }
       }
-      const obj = parseTxHuman(txt);
-      $("tx_human_view").textContent = JSON.stringify(obj, null, 2);
-      $("parse_tx_status").textContent = "解析成功";
-      // 预填字段
-      $("chainId").value = obj.chainId ?? "";
-      $("to").value = obj.to ?? "";
-      $("dataHex").value = obj.data_hex ?? "0x";
-      $("nonce").value = obj.nonce ?? "";
-      $("gas").value = obj.gas ?? "";
-      // 处理金额
-      if(obj.value_wei!=null){ $("valueWei").value = String(obj.value_wei); }
-      else if(obj.amount_eth!=null){
-        try{ $("valueWei").value = ethers.parseUnits(String(obj.amount_eth), "ether").toString(); }catch(_){}
-      }
-      // 处理 gas 价格
-      if(obj.maxFeePerGas_gwei!=null) $("maxFee").value = String(obj.maxFeePerGas_gwei);
-      if(obj.maxPriorityFeePerGas_gwei!=null) $("maxPrio").value = String(obj.maxPriorityFeePerGas_gwei);
+      const norm = detectAndNormalize(txt);
+      // 回填表单
+      $("chainId").value = norm.chainId ?? "";
+      $("to").value      = norm.to ?? "";
+      $("dataHex").value = norm.data ?? "0x";
+      $("nonce").value   = norm.nonce ?? "";
+      $("gas").value     = norm.gas ?? "";
+      $("valueWei").value= norm.valueWei ?? "0";
+      if(norm.maxFeeGwei!=="")  $("maxFee").value = norm.maxFeeGwei;
+      if(norm.maxPrioGwei!=="") $("maxPrio").value= norm.maxPrioGwei;
+
+      $("tx_human_view").textContent = JSON.stringify({schema:norm.schema, normalized:{
+        chainId:norm.chainId, nonce:norm.nonce, to:norm.to, valueWei:norm.valueWei,
+        gasLimit:norm.gas, maxFeePerGas_gwei:norm.maxFeeGwei, maxPriorityFeePerGas_gwei:norm.maxPrioGwei,
+        data:norm.data
+      }, original:norm.pretty}, null, 2);
+      $("parse_tx_status").textContent = `解析成功（${norm.schema}）`;
     }catch(e){
       $("parse_tx_status").textContent = "错误："+e.message;
       $("tx_human_view").textContent="";
