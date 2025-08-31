@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8"/>
-<title>Safe 提交者 · 离线 EOA 签名器（tx_human / EIP-1559 分离模块）</title>
+<title>Safe 提交者 · 离线 EOA 签名器（tx_human / EIP-712 分模块 · iPad 适配）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <style>
   :root{
@@ -21,8 +21,6 @@
   button.ghost{background:#fff;color:var(--accent)}
   .muted{color:var(--muted)}
   .mono{font-family:monospace}
-  .ok{color:#16a34a;font-weight:700}
-  .bad{color:#dc2626;font-weight:700}
 
   .cam-wrap{position:relative;border:1px solid var(--br);border-radius:12px;overflow:hidden;background:#000;margin-top:10px}
   .cam-wrap .preview{position:relative;width:100%;height:80vh;max-height:92vh;min-height:320px}
@@ -37,96 +35,105 @@
   .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);font-size:14px}
 
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .ok{color:#16a34a;font-weight:700}
+  .bad{color:#dc2626;font-weight:700}
 </style>
 </head>
 <body>
 <h1>Safe 提交者 · 离线 EOA 签名器</h1>
 
-<!-- 模块 A：tx_human.json（支持多帧 SAFEQR） -->
+<!-- 模块 A：接收 tx_human.json（支持 SAFEQR 多帧） -->
 <div class="card">
   <h2>模块 A：接收 tx_human.json（支持多帧 SAFEQR）</h2>
   <div class="row">
-    <button id="btn_scan_human" class="ghost">摄像头扫码（SAFEQR / 单帧）</button>
-    <button id="btn_reset_human" class="ghost">重置会话</button>
-    <span id="human_rx_status" class="muted"></span>
+    <button id="btn_scan_tx" class="ghost">摄像头扫码</button>
+    <button id="btn_reset_session" class="ghost">重置会话</button>
+    <span id="rx_status" class="muted"></span>
   </div>
 
-  <div id="cam_human" class="cam-wrap" style="display:none">
+  <div id="cam_tx" class="cam-wrap" style="display:none">
     <div class="preview">
-      <video id="video_human" playsinline webkit-playsinline muted></video>
-      <canvas id="canvas_human"></canvas>
+      <video id="video_tx" playsinline webkit-playsinline muted></video>
+      <canvas id="canvas_tx"></canvas>
       <div class="scan-overlay"></div>
-      <div class="hint">将 SAFEQR 连续所有帧置于白框内</div>
+      <div class="hint">请将二维码置于白色框内（连续扫描所有帧）</div>
     </div>
     <div class="row" style="padding:10px">
-      <button id="btn_stop_human" class="ghost">停止扫码</button>
-      <span id="scan_human_status" class="muted"></span>
+      <button id="btn_stop_tx" class="ghost">停止扫码</button>
+      <span id="scan_tx_status" class="muted"></span>
     </div>
   </div>
 
   <div class="row" style="margin-top:8px">
-    <label style="flex:1">或粘贴 tx_human.json（支持紧凑键名）<textarea id="txt_human" placeholder='{"kind":"ETH","to":"0x...","data_hex":"0x...","chainId":1,"nonce":...,"gas":...,"maxFeePerGas_gwei":...,"maxPriorityFeePerGas_gwei":...}'></textarea></label>
+    <label style="flex:1">或粘贴 tx_human.json（支持紧凑/标准键名）
+      <textarea id="txt_txjson" placeholder='{"kind":"ETH","to":"0x...","data_hex":"0x...","chainId":1,"nonce":...,"gas":...,"maxFeePerGas_gwei":...,"maxPriorityFeePerGas_gwei":...}'></textarea>
+    </label>
   </div>
 
   <div class="row">
-    <button id="btn_parse_human">解析 tx_human.json</button>
-    <button id="btn_fill_human" class="ghost">一键填充至下方表单</button>
-    <span id="parse_human_status" class="muted"></span>
+    <button id="btn_parse_tx">解析 tx_human.json</button>
+    <span id="parse_tx_status" class="muted"></span>
   </div>
 
-  <pre id="human_view" class="mono"></pre>
+  <pre id="tx_human_view" class="mono"></pre>
 </div>
 
-<!-- 模块 B：EIP-1559 原生交易 JSON（单帧 QR 或粘贴） -->
+<!-- 模块 B：接收 EIP-712 JSON（单帧扫码/粘贴） -->
 <div class="card">
-  <h2>模块 B：接收原生 EIP-1559 交易 JSON</h2>
+  <h2>模块 B：接收 EIP-712 JSON（SafeTx）</h2>
   <div class="row">
-    <button id="btn_scan_raw" class="ghost">摄像头扫码（单帧）</button>
-    <button id="btn_reset_raw" class="ghost">清空</button>
-    <span id="raw_rx_status" class="muted"></span>
+    <button id="btn_scan_712" class="ghost">摄像头扫码</button>
+    <span id="scan_712_status" class="muted"></span>
   </div>
 
-  <div id="cam_raw" class="cam-wrap" style="display:none">
+  <div id="cam_712" class="cam-wrap" style="display:none">
     <div class="preview">
-      <video id="video_raw" playsinline webkit-playsinline muted></video>
-      <canvas id="canvas_raw"></canvas>
+      <video id="video_712" playsinline webkit-playsinline muted></video>
+      <canvas id="canvas_712"></canvas>
       <div class="scan-overlay"></div>
-      <div class="hint">将 EIP-1559 JSON 二维码置于白框内</div>
+      <div class="hint">请将 EIP-712 JSON 二维码置于白色框内</div>
     </div>
     <div class="row" style="padding:10px">
-      <button id="btn_stop_raw" class="ghost">停止扫码</button>
-      <span id="scan_raw_status" class="muted"></span>
+      <button id="btn_stop_712" class="ghost">停止扫码</button>
     </div>
   </div>
 
   <div class="row" style="margin-top:8px">
-    <label style="flex:1">或粘贴 EIP-1559 JSON<textarea id="txt_raw" placeholder='{"type":2,"chainId":"0x1","nonce":"0x12","to":"0x...","value":"0x0","gas":"0x5208","maxFeePerGas":"0x...","maxPriorityFeePerGas":"0x...","data":"0x..."}'></textarea></label>
+    <label style="flex:1">或粘贴 EIP-712 JSON
+      <textarea id="txt_712" placeholder='{"domain":{"verifyingContract":"0x...","chainId":1},"types":{"SafeTx":[...]}, "message":{...}, "primaryType":"SafeTx"}'></textarea>
+    </label>
   </div>
 
   <div class="row">
-    <button id="btn_parse_raw">解析 EIP-1559 JSON</button>
-    <button id="btn_fill_raw" class="ghost">一键填充至下方表单</button>
-    <span id="parse_raw_status" class="muted"></span>
+    <button id="btn_parse_712">解析 EIP-712 JSON</button>
+    <span id="parse_712_status" class="muted"></span>
   </div>
 
-  <pre id="raw_view" class="mono"></pre>
+  <pre id="eip712_view" class="mono"></pre>
 </div>
 
-<!-- 统一的 EIP-1559 填写/确认与签名 -->
+<!-- EIP-1559 表单（由 tx_human.json 回填） -->
 <div class="card">
-  <h2>确认 EIP-1559 字段（离线签名）</h2>
+  <h2>确认 EIP-1559 字段（离线签名所用）</h2>
   <div class="grid2">
     <label>chainId<input id="chainId" type="number" placeholder="1"/></label>
     <label>nonce<input id="nonce" type="number" placeholder="从在线端查询"/></label>
     <label>to<input id="to" type="text" placeholder="0x..."/></label>
-    <label>value (wei)<input id="valueWei" type="text" placeholder="0"/></label>
+    <label>value (wei)<input id="valueWei" type="text" placeholder="0 或 数值（wei）"/></label>
+  </div>
+  <div class="grid2">
     <label>gasLimit<input id="gas" type="number" placeholder="估算/在线端提供"/></label>
-    <label>maxFeePerGas (gwei)<input id="maxFee" type="text" placeholder=""/></label>
-    <label>maxPriorityFeePerGas (gwei)<input id="maxPrio" type="text" placeholder=""/></label>
-    <label>data (hex)<input id="dataHex" type="text" placeholder="0x"/></label>
+    <label>maxFeePerGas (gwei)<input id="maxFee" type="text" placeholder="在线端给的档位"/></label>
+    <label>maxPriorityFeePerGas (gwei)<input id="maxPrio" type="text" placeholder="在线端给的档位"/></label>
+    <label>data (hex)<input id="dataHex" type="text" placeholder="0x..."/></label>
+  </div>
+  <div class="row">
+    <button id="btn_lock" class="ghost">从 tx_human 一键回填</button>
+    <span id="lock_status" class="muted"></span>
   </div>
 </div>
 
+<!-- 私钥 / 签名 -->
 <div class="card">
   <h2>私钥 & 签名</h2>
   <div class="row">
@@ -141,7 +148,7 @@
       <video id="video_priv" playsinline webkit-playsinline muted></video>
       <canvas id="canvas_priv"></canvas>
       <div class="scan-overlay"></div>
-      <div class="hint">将“私钥”二维码置于白框内</div>
+      <div class="hint">请将“私钥”二维码置于白色框内</div>
     </div>
     <div class="row" style="padding:10px">
       <button id="btn_stop_priv" class="ghost">停止扫码</button>
@@ -168,7 +175,7 @@
 (function(){
   const $=id=>document.getElementById(id);
 
-  /* ========== 摄像头通用（iPad 适配：大预览、中心方裁剪） ========== */
+  /* ========== 摄像头通用（iPad 适配） ========== */
   async function openCamera(videoEl){
     const constraints={ audio:false, video:{ facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}, aspectRatio:{ideal:16/9} } };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -177,22 +184,20 @@
   function prepSquareFrame(videoEl, canvasEl){
     const vw=videoEl.videoWidth||1280, vh=videoEl.videoHeight||720;
     const s=Math.min(vw,vh), sx=(vw-s)/2, sy=(vh-s)/2;
-    const size=800; canvasEl.width=size; canvasEl.height=size; return { sx,sy,s,dx:0,dy:0,w:size,h:size };
+    const size=800; canvasEl.width=size; canvasEl.height=size;
+    return { sx,sy,s,dx:0,dy:0,w:size,h:size };
   }
   function startScanner({boxId,videoId,canvasId,statusId,onDecoded}){
     const box=$(boxId), video=$(videoId), canvas=$(canvasId), status=$(statusId);
     let stream=null, raf=null, running=false;
-    async function begin(){ box.style.display=""; status.textContent="启动摄像头…";
-      try{ stream=await openCamera(video); status.textContent="请将二维码置于白框内"; running=true; tick();
+    async function begin(){ box.style.display=""; status && (status.textContent="启动摄像头…");
+      try{ stream=await openCamera(video); status && (status.textContent="请将二维码置于白框内"); running=true; tick();
         window.addEventListener("resize", onResize); window.addEventListener("orientationchange", onResize);
-      }catch(e){ status.textContent="摄像头失败："+e.message; } }
-    function stop(){ running=false; if(raf) cancelAnimationFrame(raf), raf=null;
-      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-      video.srcObject=null; box.style.display="none";
-      window.removeEventListener("resize", onResize); window.removeEventListener("orientationchange", onResize); }
+      }catch(e){ status && (status.textContent="摄像头失败："+e.message); } }
+    function stop(){ running=false; if(raf) cancelAnimationFrame(raf), raf=null; if(stream){stream.getTracks().forEach(t=>t.stop()); stream=null;}
+      video.srcObject=null; box.style.display="none"; window.removeEventListener("resize", onResize); window.removeEventListener("orientationchange", onResize); }
     function onResize(){}
-    function tick(){ if(!running) return;
-      if(!video.videoWidth){ raf=requestAnimationFrame(tick); return; }
+    function tick(){ if(!running){return;} if(!video.videoWidth){ raf=requestAnimationFrame(tick); return; }
       const ctx=canvas.getContext("2d"); const {sx,sy,s,dx,dy,w,h}=prepSquareFrame(video,canvas);
       ctx.drawImage(video, sx,sy,s,s, dx,dy,w,h);
       const img=ctx.getImageData(0,0,w,h); const code=jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"});
@@ -202,7 +207,7 @@
     return { begin, stop };
   }
 
-  /* ========== 工具 ========== */
+  /* ========== 工具 & 映射 ========== */
   const K2S = {k:"kind",f:"from",t:"to",vw:"value_wei",ae:"amount_eth",d:"data_hex",c:"chainId",n:"nonce",g:"gas",mf:"maxFeePerGas_gwei",mp:"maxPriorityFeePerGas_gwei"};
   function expandCompact(obj){ const out={}; for(const k in obj){ out[K2S[k]||k]=obj[k]; } return out; }
   function toBigIntLoose(v){
@@ -211,23 +216,16 @@
     if(typeof v==="string"){
       const s=v.trim();
       if(/^0x[0-9a-fA-F]+$/.test(s)) return BigInt(s);
-      if(/^\d+(\.\d+)?$/.test(s)){ if(s.includes(".")) throw new Error("不支持小数，请换最小单位"); return BigInt(s); }
+      if(/^\d+$/.test(s)) return BigInt(s);
     }
     throw new Error("无法解析数值："+v);
   }
   function toNumberLoose(v){
     if(typeof v==="number") return v;
-    if(typeof v==="string" && /^\d+(\.\d+)?$/.test(v)) return Number(v);
+    if(typeof v==="string" && /^\d+$/.test(v)) return Number(v);
     if(typeof v==="string" && /^0x[0-9a-fA-F]+$/.test(v)) return parseInt(v,16);
     if(typeof v==="bigint") return Number(v);
     throw new Error("无法解析为数字："+v);
-  }
-  function gweiFromWeiLike(v){
-    if(typeof v==="string" && !/^0x/i.test(v) && v.includes(".")) return v; // 已是 gwei 文本
-    const wei = toBigIntLoose(v);
-    const gweiStr = ethers.formatUnits(wei, "gwei");
-    const [i,f=""]=gweiStr.split(".");
-    return f ? (i+"."+f.slice(0,6).replace(/0+$/,"")).replace(/\.$/,"") : i;
   }
   async function sha256Hex(str){
     const bytes=new TextEncoder().encode(str);
@@ -235,145 +233,147 @@
     return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("");
   }
 
-  /* ========== 模块 A：tx_human（SAFEQR 多帧） ========== */
-  let humanSession=null; // { id, n, sum, parts:[], received:Set, text? }
-  function resetHuman(){ humanSession=null; $("human_rx_status").textContent="已重置"; $("human_view").textContent=""; $("txt_human").value=""; }
-  $("btn_reset_human").onclick = resetHuman;
+  /* ========== 模块 A：tx_human 接收/解析（支持 SAFEQR 多帧） ========== */
+  let session = null; // { id, n, sum, parts:[], received:Set, text? }
+  function resetSession(){ session=null; $("rx_status").textContent="已重置"; $("tx_human_view").textContent=""; $("txt_txjson").value=""; }
+  $("btn_reset_session").onclick = resetSession;
 
-  function tryFeedHumanFrame(text){
-    // 1) SAFEQR
+  function tryFeedFrame(text){
+    // SAFEQR 容器
     try{
       const o=JSON.parse(text);
       if(o && o.t==="SAFEQR" && o.v===1 && typeof o.id==="string" && typeof o.i==="number" && typeof o.n==="number" && typeof o.data==="string"){
-        if(!humanSession || humanSession.id!==o.id){
-          humanSession={ id:o.id, n:o.n, sum:o.sum||"", parts:new Array(o.n), received:new Set() };
+        if(!session || session.id!==o.id){
+          session = { id:o.id, n:o.n, sum:o.sum||"", parts:new Array(o.n), received:new Set() };
         }
-        if(o.n!==humanSession.n) return false;
-        humanSession.parts[o.i]=o.data; humanSession.received.add(o.i);
-        $("human_rx_status").textContent=`会话 ${humanSession.id}：已收帧 ${humanSession.received.size}/${humanSession.n}`;
-        if(humanSession.received.size===humanSession.n){ humanSession.text=humanSession.parts.join(""); return true; }
+        if(o.n!==session.n) return false;
+        session.parts[o.i]=o.data; session.received.add(o.i);
+        const got=[...session.received].sort((a,b)=>a-b).join(",");
+        $("rx_status").textContent = `会话 ${session.id}：已收帧 ${session.received.size}/${session.n}（索引：${got}）`;
+        if(session.received.size===session.n){
+          session.text = session.parts.join(""); return true;
+        }
         return false;
       }
     }catch(_){}
-    // 2) 单帧 JSON
+    // 单帧 JSON
     try{
       JSON.parse(text);
-      humanSession={ id:"single", n:1, sum:"", parts:[text], received:new Set([0]), text };
-      $("human_rx_status").textContent=`单帧 JSON 已接收（长度 ${text.length}）`;
+      session = { id:"single", n:1, sum:"", parts:[text], received:new Set([0]), text };
+      $("rx_status").textContent = `单帧 JSON 已接收（长度 ${text.length}）`;
       return true;
     }catch(_){}
     return false;
   }
 
-  const humanScanner = startScanner({
-    boxId:"cam_human", videoId:"video_human", canvasId:"canvas_human", statusId:"scan_human_status",
-    onDecoded:(payload)=> tryFeedHumanFrame((payload||"").trim())
+  const txScanner = startScanner({
+    boxId:"cam_tx", videoId:"video_tx", canvasId:"canvas_tx", statusId:"scan_tx_status",
+    onDecoded:(payload)=> tryFeedFrame((payload||"").trim())
   });
-  $("btn_scan_human").onclick = ()=> humanScanner.begin();
-  $("btn_stop_human").onclick = ()=> humanScanner.stop();
+  $("btn_scan_tx").onclick = ()=> txScanner.begin();
+  $("btn_stop_tx").onclick = ()=> txScanner.stop();
 
-  function normalizeFromTxHumanText(text){
+  function parseTxHumanText(text){
     const raw=JSON.parse(text);
     const obj=expandCompact(raw);
-    if(!obj.to) throw new Error("tx_human 缺少 to");
-    if(!obj.chainId) throw new Error("tx_human 缺少 chainId");
+    if(!obj.to) throw new Error("缺少 to");
+    if(!obj.chainId) throw new Error("缺少 chainId");
+    // 金额
+    let valueWei="0";
+    if(obj.value_wei!=null) valueWei = String(toBigIntLoose(obj.value_wei));
+    else if(obj.amount_eth!=null) valueWei = ethers.parseUnits(String(obj.amount_eth), "ether").toString();
     const chainId = toNumberLoose(obj.chainId);
     const to = String(obj.to).trim();
     const data = (obj.data_hex||"0x").trim();
     const nonce = (obj.nonce!=null) ? toNumberLoose(obj.nonce) : "";
-    const gas = (obj.gas!=null) ? toNumberLoose(obj.gas) : "";
-    let valueWei="0";
-    if(obj.value_wei!=null) valueWei = String(toBigIntLoose(obj.value_wei));
-    else if(obj.amount_eth!=null) valueWei = ethers.parseUnits(String(obj.amount_eth), "ether").toString();
-    const maxFeeGwei   = (obj.maxFeePerGas_gwei!=null) ? String(obj.maxFeePerGas_gwei) : "";
-    const maxPrioGwei  = (obj.maxPriorityFeePerGas_gwei!=null) ? String(obj.maxPriorityFeePerGas_gwei) : "";
-    return { chainId, to, data, nonce, gas, valueWei, maxFeeGwei, maxPrioGwei, pretty:obj };
+    const gas   = (obj.gas!=null) ? toNumberLoose(obj.gas) : "";
+    const maxFeeGwei  = (obj.maxFeePerGas_gwei!=null) ? String(obj.maxFeePerGas_gwei) : "";
+    const maxPrioGwei = (obj.maxPriorityFeePerGas_gwei!=null) ? String(obj.maxPriorityFeePerGas_gwei) : "";
+    return { chainId,to,data,nonce,gas,valueWei,maxFeeGwei,maxPrioGwei, pretty:obj };
   }
 
-  $("btn_parse_human").onclick = async ()=>{
+  $("btn_parse_tx").onclick = async ()=>{
     try{
-      let txt = $("txt_human").value.trim();
-      if(!txt){ if(!humanSession || !humanSession.text) throw new Error("请先扫码或粘贴 tx_human.json"); txt = humanSession.text; }
-      if(humanSession && humanSession.sum){
-        const fullHash=await sha256Hex(txt); const short=fullHash.slice(0,16);
-        if(short.toLowerCase()!==humanSession.sum.toLowerCase()) throw new Error(`整体哈希不匹配：expected ${humanSession.sum} got ${short}`);
+      let txt = $("txt_txjson").value.trim();
+      if(!txt){
+        if(!session || !session.text) throw new Error("请先扫码或粘贴 tx_human.json");
+        txt = session.text;
       }
-      const norm = normalizeFromTxHumanText(txt);
-      $("human_view").textContent = JSON.stringify({schema:"tx_human", normalized:norm, original:norm.pretty}, null, 2);
-      $("parse_human_status").textContent="解析成功（tx_human）";
-      // 暂存（用于一键填充）
-      window.__last_human_norm = norm;
-    }catch(e){ $("parse_human_status").textContent="错误："+e.message; $("human_view").textContent=""; }
+      if(session && session.sum){
+        const fullHash = await sha256Hex(txt);
+        const short = fullHash.slice(0,16);
+        if(short.toLowerCase() !== session.sum.toLowerCase()){
+          throw new Error(`整体哈希不匹配：expected ${session.sum} got ${short}`);
+        }
+      }
+      const o = parseTxHumanText(txt);
+      // 回填
+      $("chainId").value = o.chainId ?? "";
+      $("to").value      = o.to ?? "";
+      $("dataHex").value = o.data ?? "0x";
+      $("nonce").value   = o.nonce ?? "";
+      $("gas").value     = o.gas ?? "";
+      $("valueWei").value= o.valueWei ?? "0";
+      if(o.maxFeeGwei!=="")  $("maxFee").value = o.maxFeeGwei;
+      if(o.maxPrioGwei!=="") $("maxPrio").value= o.maxPrioGwei;
+      $("tx_human_view").textContent = JSON.stringify({normalized:{
+        chainId:o.chainId, nonce:o.nonce, to:o.to, valueWei:o.valueWei,
+        gasLimit:o.gas, maxFeePerGas_gwei:o.maxFeeGwei, maxPriorityFeePerGas_gwei:o.maxPrioGwei, data:o.data
+      }, original:o.pretty}, null, 2);
+      $("parse_tx_status").textContent = "解析成功并已回填";
+    }catch(e){
+      $("parse_tx_status").textContent = "错误："+e.message;
+      $("tx_human_view").textContent="";
+    }
   };
 
-  $("btn_fill_human").onclick = ()=>{
-    const n=window.__last_human_norm;
-    if(!n){ $("parse_human_status").textContent="请先解析 tx_human.json"; return; }
-    $("chainId").value = n.chainId ?? "";
-    $("to").value      = n.to ?? "";
-    $("dataHex").value = n.data ?? "0x";
-    $("nonce").value   = n.nonce ?? "";
-    $("gas").value     = n.gas ?? "";
-    $("valueWei").value= n.valueWei ?? "0";
-    if(n.maxFeeGwei!=="")  $("maxFee").value = n.maxFeeGwei;
-    if(n.maxPrioGwei!=="") $("maxPrio").value= n.maxPrioGwei;
-  };
+  $("btn_lock").onclick = ()=> $("btn_parse_tx").click();
 
-  /* ========== 模块 B：原生 EIP-1559（单帧） ========== */
-  function resetRaw(){ $("raw_rx_status").textContent="已清空"; $("raw_view").textContent=""; $("txt_raw").value=""; }
-  $("btn_reset_raw").onclick = resetRaw;
-
-  const rawScanner = startScanner({
-    boxId:"cam_raw", videoId:"video_raw", canvasId:"canvas_raw", statusId:"scan_raw_status",
-    onDecoded:(payload)=>{ try{ JSON.parse((payload||"").trim()); $("txt_raw").value=(payload||"").trim(); $("raw_rx_status").textContent="已填入 JSON"; return true; }catch(_){ return false; } }
+  /* ========== 模块 B：EIP-712 JSON 扫描/解析（单帧） ========== */
+  const eip712Scanner = startScanner({
+    boxId:"cam_712", videoId:"video_712", canvasId:"canvas_712", statusId:null,
+    onDecoded:(payload)=>{
+      const txt=(payload||"").trim();
+      try{
+        const j=JSON.parse(txt);
+        if(j && j.domain && j.types && j.message){
+          $("txt_712").value = txt;
+          $("scan_712_status").textContent = "已填入 EIP-712 JSON";
+          return true;
+        }
+      }catch(_){}
+      return false;
+    }
   });
-  $("btn_scan_raw").onclick = ()=> rawScanner.begin();
-  $("btn_stop_raw").onclick = ()=> rawScanner.stop();
+  $("btn_scan_712").onclick = ()=> eip712Scanner.begin();
+  $("btn_stop_712").onclick = ()=> eip712Scanner.stop();
 
-  function isLikelyRaw1559(o){
-    if(o==null || typeof o!=="object") return false;
-    if(o.type===2 || o.type==="0x2") return true;
-    if(o.maxFeePerGas!=null || o.maxPriorityFeePerGas!=null) return true;
-    if(o.gas!=null || o.gasLimit!=null) return true;
-    return false;
-  }
-  function normalizeFromRaw1559(o){
-    if(!isLikelyRaw1559(o)) throw new Error("看起来不是 EIP-1559 交易 JSON");
-    const chainId = toNumberLoose(o.chainId);
-    const nonce   = toNumberLoose(o.nonce);
-    const to      = String(o.to||"").trim();
-    const data    = (o.data||"0x").trim();
-    const gas     = (o.gas!=null)? toNumberLoose(o.gas) : (o.gasLimit!=null? toNumberLoose(o.gasLimit) : "");
-    const valueWei= String(toBigIntLoose(o.value||0));
-    const maxFeeGwei  = (o.maxFeePerGas!=null) ? gweiFromWeiLike(o.maxFeePerGas) : "";
-    const maxPrioGwei = (o.maxPriorityFeePerGas!=null) ? gweiFromWeiLike(o.maxPriorityFeePerGas) : "";
-    return { chainId, to, data, nonce, gas, valueWei, maxFeeGwei, maxPrioGwei, pretty:o };
-  }
-
-  $("btn_parse_raw").onclick = ()=>{
+  $("btn_parse_712").onclick = ()=>{
     try{
-      const txt=$("txt_raw").value.trim(); if(!txt) throw new Error("请粘贴或扫码原生 EIP-1559 JSON");
-      const obj=JSON.parse(txt); const norm=normalizeFromRaw1559(obj);
-      $("raw_view").textContent = JSON.stringify({schema:"raw_1559", normalized:norm, original:norm.pretty}, null, 2);
-      $("parse_raw_status").textContent="解析成功（EIP-1559 原生）";
-      window.__last_raw_norm = norm;
-    }catch(e){ $("parse_raw_status").textContent="错误："+e.message; $("raw_view").textContent=""; }
+      const txt = $("txt_712").value.trim();
+      if(!txt) throw new Error("请先扫码或粘贴 EIP-712 JSON");
+      const typed = JSON.parse(txt);
+      const domain=typed.domain, types=typed.types, message=typed.message;
+      if(!domain||!types||!message) throw new Error("缺少 domain/types/message");
+      const primaryType = typed.primaryType || "SafeTx";
+      const hash = ethers.TypedDataEncoder.hash(domain, types, message);
+      $("eip712_view").textContent = [
+        "primaryType: "+primaryType,
+        "verifyingContract: "+domain.verifyingContract,
+        "chainId: "+domain.chainId,
+        "safeTxHash: "+hash,
+        "",
+        "message:",
+        JSON.stringify(message,null,2)
+      ].join("\n");
+      $("parse_712_status").textContent = "解析成功";
+    }catch(e){
+      $("parse_712_status").textContent = "错误："+e.message;
+      $("eip712_view").textContent="";
+    }
   };
 
-  $("btn_fill_raw").onclick = ()=>{
-    const n=window.__last_raw_norm;
-    if(!n){ $("parse_raw_status").textContent="请先解析 EIP-1559 JSON"; return; }
-    $("chainId").value = n.chainId ?? "";
-    $("to").value      = n.to ?? "";
-    $("dataHex").value = n.data ?? "0x";
-    $("nonce").value   = n.nonce ?? "";
-    $("gas").value     = n.gas ?? "";
-    $("valueWei").value= n.valueWei ?? "0";
-    if(n.maxFeeGwei!=="")  $("maxFee").value = n.maxFeeGwei;
-    if(n.maxPrioGwei!=="") $("maxPrio").value= n.maxPrioGwei;
-  };
-
-  /* ========== 私钥扫码/清空 ========== */
+  /* ========== 私钥扫码/签名（EIP-1559） ========== */
   function extractPriv(text){
     const s=text.trim();
     if(/^0x[0-9a-fA-F]{64}$/.test(s)) return s;
@@ -388,13 +388,16 @@
   }
   const privScanner = startScanner({
     boxId:"cam_priv", videoId:"video_priv", canvasId:"canvas_priv", statusId:"scan_priv_status",
-    onDecoded:(payload)=>{ const maybe=extractPriv((payload||"").trim()); if(maybe){ $("priv").value=maybe; $("priv_status").textContent="已通过二维码填入私钥"; return true; } return false; }
+    onDecoded:(payload)=>{
+      const maybe = extractPriv((payload||"").trim());
+      if(maybe){ $("priv").value=maybe; $("priv_status").textContent="已通过二维码填入私钥"; return true; }
+      return false;
+    }
   });
   $("btn_scan_priv").onclick = ()=> privScanner.begin();
   $("btn_stop_priv").onclick = ()=> privScanner.stop();
   $("btn_clear_priv").onclick = ()=> { $("priv").value=""; $("priv_status").textContent="已清空"; };
 
-  /* ========== 签名（EIP-1559） ========== */
   function toWeiGwei(x){ return ethers.parseUnits(String(x), "gwei"); }
   $("btn_sign").onclick = async ()=>{
     try{
@@ -419,10 +422,17 @@
       if(maxFeePerGas<=0n || maxPriorityFeePerGas<0n) throw new Error("gas 价格不合法");
       if(maxFeePerGas<maxPriorityFeePerGas) throw new Error("maxFeePerGas 必须 ≥ maxPriorityFeePerGas");
 
-      const tx={ type:2, chainId, nonce, to, value:valueWei, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas };
-      const raw=await w.signTransaction(tx);
-      const txhash=ethers.keccak256(raw);
-      $("rawtx").value=raw; $("txhash").value=txhash; $("sign_status").textContent="签名完成";
+      const tx = {
+        type: 2, chainId, nonce,
+        to, value: valueWei, data,
+        gasLimit,
+        maxFeePerGas, maxPriorityFeePerGas
+      };
+      const raw = await w.signTransaction(tx);
+      const txhash = ethers.keccak256(raw);
+      $("rawtx").value = raw;
+      $("txhash").value = txhash;
+      $("sign_status").textContent = "签名完成";
 
       const div=$("qr_raw"); div.innerHTML="";
       new QRCode(div,{text:raw,width:280,height:280,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
