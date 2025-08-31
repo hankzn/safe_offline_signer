@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8"/>
-<title>Safe 离线签名器（EIP-712）</title>
+<title>Safe 离线签名器（EIP-712 / ethers v6）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <style>
   :root{--fg:#111827;--muted:#6b7280;--br:#e5e7eb}
@@ -51,13 +51,12 @@
 
 <script src="./libs/ethers.umd.min.js"></script>
 <script src="./libs/qrcode.min.js"></script>
-<script src="./libs/jsQR.min.js"></script>
+<script src="./libs/jsQR.js"></script>
 <script>
 (function(){
   const $=id=>document.getElementById(id);
   let typed=null, domain=null, types=null, message=null, hash=null;
 
-  // 扫码
   let stream=null, rafId=null;
   $("btn_scan").onclick=async ()=>{
     $("cam_box").style.display="";
@@ -82,7 +81,6 @@
     rafId=requestAnimationFrame(tick);
   }
 
-  // 解析
   $("btn_parse").onclick=()=>{
     try{
       typed=JSON.parse($("typed_json").value||"{}");
@@ -100,7 +98,6 @@
     }catch(e){ $("parse_status").textContent="错误："+e.message; $("summary").textContent=""; }
   };
 
-  // 签名
   $("btn_sign").onclick=async ()=>{
     try{
       if(!typed||!hash) throw new Error("请先解析 EIP-712 JSON");
