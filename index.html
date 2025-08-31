@@ -284,6 +284,7 @@
   function resetSession(){ session=null; $("rx_status").textContent="已重置"; $("tx_human_view").textContent=""; $("txt_txjson").value=""; }
   $("btn_reset_session").onclick = resetSession;
 
+  // ★ 修复点：收齐后自动写入文本框；单帧也自动写入
   function tryFeedFrame(text){
     // SAFEQR 容器
     try{
@@ -297,18 +298,25 @@
         const got=[...session.received].sort((a,b)=>a-b).join(",");
         $("rx_status").textContent = `会话 ${session.id}：已收帧 ${session.received.size}/${session.n}（索引：${got})`;
         if(session.received.size===session.n){
-          session.text = session.parts.join(""); return true;
+          session.text = session.parts.join("");
+          // 自动写入文本框
+          $("txt_txjson").value = session.text;
+          $("rx_status").textContent = `会话 ${session.id}：全部 ${session.n} 帧已收齐，已填入文本框`;
+          return true; // 告诉扫码器可停止本次会话
         }
         return false;
       }
     }catch(_){}
+
     // 单帧 JSON
     try{
       JSON.parse(text);
       session = { id:"single", n:1, sum:"", parts:[text], received:new Set([0]), text };
-      $("rx_status").textContent = `单帧 JSON 已接收（长度 ${text.length}）`;
+      $("txt_txjson").value = text; // 自动写入文本框
+      $("rx_status").textContent = `单帧 JSON 已接收并填入（长度 ${text.length}）`;
       return true;
     }catch(_){}
+
     return false;
   }
 
@@ -458,11 +466,9 @@
       $("sig_712").value=sig;
       $("sign_712_status").textContent="已签名";
 
-      // 二维码
       const div=$("qr_sig_712"); div.innerHTML="";
       new QRCode(div,{text:sig,width:280,height:280,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
 
-      // 验签
       const recovered=ethers.verifyTypedData(domain, types, message, sig);
       $("verify_712").textContent =
         "Signer:   "+w.address+"\n"+
