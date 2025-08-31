@@ -2,10 +2,13 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8"/>
-<title>Safe 离线签名器（EIP-712 / 扫码私钥 · iPad 适配）</title>
+<title>Safe 离线签名器（EIP-712 / 扫码私钥 · iPad/通用适配）</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <style>
-  :root{--fg:#111827;--muted:#6b7280;--br:#e5e7eb;--accent:#111}
+  :root{
+    --fg:#111827; --muted:#6b7280; --br:#e5e7eb; --accent:#111;
+    --scan-size: min(85vmin, 720px); /* 中心扫描框边长：适配 iPad/桌面/手机 */
+  }
   body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:24px;max-width:900px;color:var(--fg)}
   h1{font-size:22px;margin:0 0 12px}
   .card{border:1px solid var(--br);border-radius:12px;padding:16px;margin:16px 0}
@@ -19,16 +22,18 @@
   .muted{color:var(--muted)}
   .mono{font-family:monospace}
   .warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:10px;padding:10px;margin-top:8px}
-  /* 摄像头容器（自适应 iPad） */
+
+  /* 统一摄像头容器（两处共用） */
   .cam-wrap{position:relative;border:1px solid var(--br);border-radius:12px;overflow:hidden;background:#000;margin-top:10px}
-  .cam-wrap .preview{position:relative;width:100%;height:60vh;max-height:70vh;min-height:280px}
-  .cam-wrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;/* 关键：铺满避免出现细条 */}
+  .cam-wrap .preview{position:relative;width:100%;height:80vh;max-height:92vh;min-height:320px}
+  .cam-wrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   .cam-wrap canvas{display:none}
-  /* 扫描框遮罩（正方形中心裁剪提示） */
+
+  /* 扫描框遮罩（正方形） */
   .scan-overlay{pointer-events:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
   .scan-overlay::before{
-    content:""; display:block; width:min(70vmin, 80%); aspect-ratio:1/1;
-    border:2px solid rgba(255,255,255,.9); border-radius:16px;
+    content:""; display:block; width:var(--scan-size); aspect-ratio:1/1;
+    border:2px solid rgba(255,255,255,.95); border-radius:16px;
     box-shadow:0 0 0 9999px rgba(0,0,0,.35);
   }
   .hint{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);font-size:14px}
@@ -41,21 +46,22 @@
 <div class="card">
   <h2>导入 EIP-712 JSON（来自在线端）</h2>
   <div class="row">
-    <button id="btn_scan" class="ghost">摄像头扫码导入</button>
+    <button id="btn_scan_json" class="ghost">摄像头扫码导入</button>
     <span class="muted">或粘贴到下方文本框</span>
   </div>
   <textarea id="typed_json" placeholder='{"domain":{"verifyingContract":"0x...","chainId":1},"types":{"SafeTx":[...]}, "message":{...}, "primaryType":"SafeTx"}'></textarea>
 
-  <div id="cam_box" class="cam-wrap" style="display:none">
+  <!-- 统一大的预览/扫描区（JSON） -->
+  <div id="cam_json" class="cam-wrap" style="display:none">
     <div class="preview">
-      <video id="video" playsinline webkit-playsinline muted></video>
-      <canvas id="canvas"></canvas>
+      <video id="video_json" playsinline webkit-playsinline muted></video>
+      <canvas id="canvas_json"></canvas>
       <div class="scan-overlay"></div>
       <div class="hint">请将二维码置于白色框内</div>
     </div>
     <div class="row" style="padding:10px">
-      <button id="btn_stop" class="ghost">停止扫码</button>
-      <span id="scan_status" class="muted"></span>
+      <button id="btn_stop_json" class="ghost">停止扫码</button>
+      <span id="status_json" class="muted"></span>
     </div>
   </div>
 
@@ -81,7 +87,8 @@
     <span id="priv_status" class="muted"></span>
   </div>
 
-  <div id="cam_priv_box" class="cam-wrap" style="display:none">
+  <!-- 统一大的预览/扫描区（私钥） -->
+  <div id="cam_priv" class="cam-wrap" style="display:none">
     <div class="preview">
       <video id="video_priv" playsinline webkit-playsinline muted></video>
       <canvas id="canvas_priv"></canvas>
@@ -90,7 +97,7 @@
     </div>
     <div class="row" style="padding:10px">
       <button id="btn_stop_priv" class="ghost">停止扫码</button>
-      <span id="scan_priv_status" class="muted"></span>
+      <span id="status_priv" class="muted"></span>
     </div>
   </div>
 
@@ -110,84 +117,118 @@
 (function(){
   const $=id=>document.getElementById(id);
 
-  let typed=null, domain=null, types=null, message=null, hash=null;
-
-  // ===== 工具：打开摄像头（iPad 适配）=====
-  async function openCamera(videoEl, preferRear=true){
+  // ========== 通用：打开摄像头（后摄优先）==========
+  async function openCamera(videoEl){
     const constraints = {
       audio:false,
       video:{
-        facingMode: preferRear ? { ideal:"environment" } : "user",
-        width: { ideal: 1920 },   // iPad 后摄通常支持 1080p/4K；给 ideal 由系统降级
-        height:{ ideal: 1080 },
-        aspectRatio: { ideal: 16/9 }
+        facingMode:{ ideal:"environment" },
+        width:{ ideal:1920 }, height:{ ideal:1080 }, aspectRatio:{ ideal:16/9 }
       }
     };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = stream;
-    // iOS 需要 playsInline + 用户手势后 play()
-    await videoEl.play();
+    await videoEl.play(); // iOS: 在用户点击按钮后允许
     return stream;
   }
-
-  // ===== 居中正方形裁剪，返回 {sx,sy,s,dx,dy,w,h} =====
-  function calcSquareCrop(videoEl, canvasEl){
-    const vw = videoEl.videoWidth || 1280;
-    const vh = videoEl.videoHeight || 720;
-    const s = Math.min(vw, vh);      // 正方形边长
-    const sx = (vw - s) / 2;         // 居中裁剪
-    const sy = (vh - s) / 2;
-    // Canvas 固定为方形 600×600（也可用 s）
-    const size = 600;
-    canvasEl.width = size;
-    canvasEl.height = size;
-    return { sx, sy, s, dx:0, dy:0, w:size, h:size };
+  // 计算中心正方形裁剪，Canvas 固定 800×800
+  function prepSquareFrame(videoEl, canvasEl){
+    const vw=videoEl.videoWidth||1280, vh=videoEl.videoHeight||720;
+    const s=Math.min(vw,vh), sx=(vw-s)/2, sy=(vh-s)/2;
+    const size=800; canvasEl.width=size; canvasEl.height=size;
+    return { sx,sy,s,dx:0,dy:0,w:size,h:size };
   }
+  // 启动一个扫码循环（通用）
+  function startScanner({boxId, videoId, canvasId, statusId, decoder, onDecoded}){
+    const box=$(boxId), video=$(videoId), canvas=$(canvasId), status=$(statusId);
+    let stream=null, raf=null, running=false;
 
-  // ====== 扫码：EIP-712 JSON ======
-  let streamJSON=null, rafJSON=null;
-  $("btn_scan").onclick=async ()=>{
-    $("cam_box").style.display="";
-    $("scan_status").textContent="启动摄像头…";
-    try{
-      streamJSON = await openCamera($("video"), true);
-      $("scan_status").textContent="请将二维码置于白框内";
-      tickJSON();
-      window.addEventListener("resize", onResizeJSON);
-      window.addEventListener("orientationchange", onResizeJSON);
-    }catch(e){ $("scan_status").textContent="摄像头失败："+e.message; }
-  };
-  function onResizeJSON(){ /* 触发重绘即可 */ }
-  $("btn_stop").onclick=stopScanJSON;
-  function stopScanJSON(){
-    if(rafJSON) cancelAnimationFrame(rafJSON); rafJSON=null;
-    if(streamJSON){ streamJSON.getTracks().forEach(t=>t.stop()); streamJSON=null; }
-    $("video").srcObject=null;
-    $("cam_box").style.display="none";
-    window.removeEventListener("resize", onResizeJSON);
-    window.removeEventListener("orientationchange", onResizeJSON);
-  }
-  function tickJSON(){
-    const v=$("video"); if(!v.videoWidth){ rafJSON=requestAnimationFrame(tickJSON); return; }
-    const c=$("canvas"), ctx=c.getContext("2d");
-    const {sx,sy,s,dx,dy,w,h}=calcSquareCrop(v,c);
-    ctx.drawImage(v, sx,sy,s,s, dx,dy,w,h);
-    const img=ctx.getImageData(0,0,w,h);
-    const code=jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"});
-    if(code && code.data){
+    async function begin(){
+      box.style.display="";
+      status.textContent="启动摄像头…";
       try{
-        const txt=code.data.trim();
-        JSON.parse(txt); // 能 parse JSON 说明是我们要的
-        $("typed_json").value=txt;
-        $("scan_status").textContent="已填入 JSON";
-        stopScanJSON();
-        return;
-      }catch(_){}
+        stream=await openCamera(video);
+        status.textContent="请将二维码置于白色框内";
+        running=true; tick();
+        window.addEventListener("orientationchange", onRotate);
+        window.addEventListener("resize", onRotate);
+      }catch(e){ status.textContent="摄像头失败："+e.message; }
     }
-    rafJSON=requestAnimationFrame(tickJSON);
+    function stop(){
+      running=false;
+      if(raf) cancelAnimationFrame(raf), raf=null;
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+      video.srcObject=null; box.style.display="none";
+      window.removeEventListener("orientationchange", onRotate);
+      window.removeEventListener("resize", onRotate);
+    }
+    function onRotate(){ /* 触发重绘即可 */ }
+    function tick(){
+      if(!running){ return; }
+      if(!video.videoWidth){ raf=requestAnimationFrame(tick); return; }
+      const ctx=canvas.getContext("2d");
+      const {sx,sy,s,dx,dy,w,h}=prepSquareFrame(video, canvas);
+      ctx.drawImage(video, sx,sy,s,s, dx,dy,w,h);
+      const img=ctx.getImageData(0,0,w,h);
+      const code=decoder(img,w,h);
+      if(code){
+        const ok = onDecoded(code);
+        if(ok){ stop(); return; } // onDecoded 返回 true 表示接收并停止
+      }
+      raf=requestAnimationFrame(tick);
+    }
+    return { begin, stop };
   }
 
-  // ===== 解析 EIP-712 =====
+  // ========== JSON 扫码器 ==========
+  const jsonScanner = startScanner({
+    boxId:"cam_json", videoId:"video_json", canvasId:"canvas_json", statusId:"status_json",
+    decoder:(img,w,h)=> jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"}),
+    onDecoded:(code)=>{
+      try{
+        const txt = (code.data||"").trim();
+        JSON.parse(txt); // 能 parse JSON 即认为是 EIP-712 JSON
+        $("typed_json").value = txt;
+        $("status_json").textContent = "已填入 JSON";
+        return true;
+      }catch(_){ return false; }
+    }
+  });
+  $("btn_scan_json").onclick = ()=> jsonScanner.begin();
+  $("btn_stop_json").onclick = ()=> jsonScanner.stop();
+
+  // ========== 私钥 扫码器 ==========
+  function extractPriv(text){
+    const s=text.trim();
+    if(/^0x[0-9a-fA-F]{64}$/.test(s)) return s;
+    try{
+      const j=JSON.parse(s);
+      if(j && typeof j==="object"){
+        if(typeof j.privateKey==="string" && /^0x[0-9a-fA-F]{64}$/.test(j.privateKey)) return j.privateKey;
+        if(typeof j.priv==="string" && /^0x[0-9a-fA-F]{64}$/.test(j.priv)) return j.priv;
+      }
+    }catch(_){}
+    return null;
+  }
+  const privScanner = startScanner({
+    boxId:"cam_priv", videoId:"video_priv", canvasId:"canvas_priv", statusId:"status_priv",
+    decoder:(img,w,h)=> jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"}),
+    onDecoded:(code)=>{
+      const maybe = extractPriv(code.data||"");
+      if(maybe){
+        $("priv").value = maybe;
+        $("priv_status").textContent = "已通过二维码填入私钥";
+        return true;
+      }
+      return false;
+    }
+  });
+  $("btn_scan_priv").onclick = ()=> privScanner.begin();
+  $("btn_stop_priv").onclick = ()=> privScanner.stop();
+  $("btn_clear_priv").onclick = ()=>{ $("priv").value=""; $("priv_status").textContent="已清空"; };
+
+  // ========== 解析 EIP-712 / 签名 ==========
+  let typed=null, domain=null, types=null, message=null, hash=null;
   $("btn_parse").onclick=()=>{
     try{
       typed=JSON.parse($("typed_json").value||"{}");
@@ -205,65 +246,6 @@
     }catch(e){ $("parse_status").textContent="错误："+e.message; $("summary").textContent=""; }
   };
 
-  // ====== 扫码：私钥 ======
-  let streamPriv=null, rafPriv=null;
-  $("btn_scan_priv").onclick=async ()=>{
-    $("cam_priv_box").style.display="";
-    $("scan_priv_status").textContent="启动摄像头…";
-    try{
-      streamPriv = await openCamera($("video_priv"), true);
-      $("scan_priv_status").textContent="请将“私钥”二维码置于白框内";
-      tickPriv();
-      window.addEventListener("resize", onResizePriv);
-      window.addEventListener("orientationchange", onResizePriv);
-    }catch(e){ $("scan_priv_status").textContent="摄像头失败："+e.message; }
-  };
-  function onResizePriv(){ /* 触发重绘即可 */ }
-  $("btn_stop_priv").onclick=stopScanPriv;
-  function stopScanPriv(){
-    if(rafPriv) cancelAnimationFrame(rafPriv); rafPriv=null;
-    if(streamPriv){ streamPriv.getTracks().forEach(t=>t.stop()); streamPriv=null; }
-    $("video_priv").srcObject=null;
-    $("cam_priv_box").style.display="none";
-    window.removeEventListener("resize", onResizePriv);
-    window.removeEventListener("orientationchange", onResizePriv);
-  }
-
-  function extractPriv(text){
-    const s=text.trim();
-    if(/^0x[0-9a-fA-F]{64}$/.test(s)) return s;  // 0x + 64hex
-    try{
-      const j=JSON.parse(s);
-      if (j && typeof j==="object"){
-        if (typeof j.privateKey==="string" && /^0x[0-9a-fA-F]{64}$/.test(j.privateKey)) return j.privateKey;
-        if (typeof j.priv==="string" && /^0x[0-9a-fA-F]{64}$/.test(j.priv)) return j.priv;
-      }
-    }catch(_){}
-    return null;
-  }
-
-  function tickPriv(){
-    const v=$("video_priv"); if(!v.videoWidth){ rafPriv=requestAnimationFrame(tickPriv); return; }
-    const c=$("canvas_priv"), ctx=c.getContext("2d");
-    const {sx,sy,s,dx,dy,w,h}=calcSquareCrop(v,c);
-    ctx.drawImage(v, sx,sy,s,s, dx,dy,w,h);
-    const img=ctx.getImageData(0,0,w,h);
-    const code=jsQR(img.data,w,h,{inversionAttempts:"attemptBoth"});
-    if(code && code.data){
-      const maybe=extractPriv(code.data);
-      if(maybe){
-        $("priv").value = maybe;    // 保持 password 类型
-        $("priv_status").textContent = "已通过二维码填入私钥";
-        stopScanPriv();
-        return;
-      }
-    }
-    rafPriv=requestAnimationFrame(tickPriv);
-  }
-
-  // ====== 清空私钥 / 签名 ======
-  $("btn_clear_priv").onclick=()=>{ $("priv").value=""; $("priv_status").textContent="已清空"; };
-
   $("btn_sign").onclick=async ()=>{
     try{
       if(!typed||!hash) throw new Error("请先解析 EIP-712 JSON");
@@ -273,13 +255,14 @@
       const sig=await w.signTypedData(domain, types, message);
       $("sig").value=sig;
       $("sign_status").textContent="已签名";
-      const div=$("qr_sig"); div.innerHTML="";
-      new QRCode(div,{text:sig,width:240,height:240,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
+      const div=document.getElementById("qr_sig"); div.innerHTML="";
+      new QRCode(div,{text:sig,width:260,height:260,colorDark:"#000",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.M});
       const recovered=ethers.verifyTypedData(domain, types, message, sig);
-      $("recovered").textContent = "Signer: "+w.address+"\nRecovered: "+recovered+"\nMatch: "+(ethers.getAddress(recovered)===ethers.getAddress(w.address));
+      document.getElementById("recovered").textContent =
+        "Signer: "+w.address+"\nRecovered: "+recovered+"\nMatch: "+(ethers.getAddress(recovered)===ethers.getAddress(w.address));
     }catch(e){
       $("sign_status").textContent="错误："+e.message;
-      $("sig").value=""; $("qr_sig").innerHTML=""; $("recovered").textContent="";
+      $("sig").value=""; document.getElementById("qr_sig").innerHTML=""; document.getElementById("recovered").textContent="";
     }
   };
 })();
